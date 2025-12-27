@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>溶岩ジャンプ - 自動ジャンプ版</title>
+    <style>
+        body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; color: white; touch-action: none; }
+        canvas { background: #222; box-shadow: 0 0 40px rgba(255, 69, 0, 0.3); border: 2px solid #444; display: none; max-width: 100%; max-height: 100vh; }
+        
+        .panel { text-align: center; background: #2a2a2a; padding: 20px; border-radius: 15px; border: 1px solid #444; position: absolute; z-index: 100; width: 90%; max-width: 340px; }
+        h1 { margin: 0 0 15px 0; color: #eee; letter-spacing: 2px; font-size: 24px; }
+        
+        .mode-selection { display: flex; flex-direction: column; gap: 10px; }
+        .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; }
+        .mode-info { text-align: left; flex-grow: 1; }
+        .mode-name { font-weight: bold; font-size: 14px; display: block; }
+        .mode-best { font-size: 11px; color: #f1c40f; }
+        
+        .btn { padding: 10px; border: none; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; color: white; -webkit-tap-highlight-color: transparent; }
+        .easy { background: #4b7bee; width: 70px; }
+        .normal { background: #20bf6b; width: 70px; }
+        .hard { background: #eb3b5a; width: 70px; }
+        
+        .reset-btn { background: transparent; border: 1px solid #555; color: #888; font-size: 10px; padding: 2px 6px; margin-left: 5px; border-radius: 4px; }
+        .retry { background: #f39c12; width: 100%; margin-top: 20px; font-size: 18px; }
+        .back-to-menu { background: #7f8c8d; font-size: 12px; width: 80%; margin: 10px auto; display: block; }
+
+        #ui { position: absolute; top: 10px; text-align: center; width: 100%; display: none; pointer-events: none; }
+        #scoreVal { font-size: 32px; font-weight: bold; }
+        #bestValUI { font-size: 12px; color: #f1c40f; }
+        #speedMeter { position: absolute; bottom: 5px; right: 5px; font-size: 9px; color: #666; font-family: monospace; }
+        
+        #gameOverPanel { display: none; }
+        .final-score { font-size: 44px; color: #ff4d4d; margin: 5px 0; font-weight: bold; }
+        .new-record { color: #f1c40f; font-size: 16px; animation: flash 0.5s infinite alternate; display: none; }
+        @keyframes flash { from { opacity: 1; } to { opacity: 0.3; } }
+        
+        #touchGuide { position: absolute; bottom: 20px; width: 100%; text-align: center; font-size: 11px; opacity: 0.5; pointer-events: none; display: none; color: #00d2ff; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="menu" class="panel">
+        <h1>溶岩ジャンプ</h1>
+        <div class="mode-selection">
+            <div class="mode-row">
+                <div class="mode-info">
+                    <span class="mode-name">イージー</span>
+                    <span class="mode-best">記録: <span id="best-easy">0</span> <button class="reset-btn" onclick="resetScore('easy')">消去</button></span>
+                </div>
+                <button class="btn easy" onclick="startGame('easy')">開始</button>
+            </div>
+            <div class="mode-row">
+                <div class="mode-info">
+                    <span class="mode-name">ノーマル</span>
+                    <span class="mode-best">記録: <span id="best-normal">0</span> <button class="reset-btn" onclick="resetScore('normal')">消去</button></span>
+                </div>
+                <button class="btn normal" onclick="startGame('normal')">開始</button>
+            </div>
+            <div class="mode-row">
+                <div class="mode-info">
+                    <span class="mode-name">ハード</span>
+                    <span class="mode-best">記録: <span id="best-hard">0</span> <button class="reset-btn" onclick="resetScore('hard')">消去</button></span>
+                </div>
+                <button class="btn hard" onclick="startGame('hard')">開始</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameOverPanel" class="panel">
+        <h1 id="gameOverTitle">GAME OVER</h1>
+        <div id="newRecordMsg" class="new-record">★自己ベスト更新★</div>
+        <div class="final-score" id="finalScoreVal">0</div>
+        <div id="modeLabelEnd" style="font-size: 14px; margin-bottom: 5px;"></div>
+        <div style="font-size: 12px; color: #f1c40f; margin-bottom: 10px;">ベスト: <span id="bestEndDisplay">0</span></div>
+        <button class="btn retry" onclick="retryGame()">もう一度挑戦</button>
+        <button class="btn back-to-menu" onclick="backToMenu()">戻る</button>
+    </div>
+
+    <div id="ui">
+        <div id="modeLabel" style="font-size: 11px; opacity: 0.6;"></div>
+        <div id="scoreVal">0</div>
+        <div id="bestValUI">BEST: 0</div>
+    </div>
+    <div id="speedMeter">0.00 px/f</div>
+    <div id="touchGuide">左右タップで移動（自動で跳ねます！）</div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreVal = document.getElementById('scoreVal');
+    const bestValUI = document.getElementById('bestValUI');
+    const modeLabel = document.getElementById('modeLabel');
+    const speedMeter = document.getElementById('speedMeter');
+    const menu = document.getElementById('menu');
+    const gameOverPanel = document.getElementById('gameOverPanel');
+    const finalScoreVal = document.getElementById('finalScoreVal');
+    const newRecordMsg = document.getElementById('newRecordMsg');
+    const ui = document.getElementById('ui');
+    const touchGuide = document.getElementById('touchGuide');
+
+    function resize() {
+        const h = window.innerHeight;
+        const w = window.innerWidth;
+        const ratio = 400 / 600;
+        if (w / h < ratio) {
+            canvas.style.width = "100%";
+            canvas.style.height = "auto";
+        } else {
+            canvas.style.width = "auto";
+            canvas.style.height = "100%";
+        }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    canvas.width = 400;
+    canvas.height = 600;
+
+    let currentMode = 'normal';
+    let score = 0;
+    let highScores = { easy: 0, normal: 0, hard: 0 };
+    let gameOver = false;
+    let gameStarted = false;
+    let cameraY = 0;
+    let lavaY = 1000;
+    let platforms = [];
+    let currentLavaSpeed = 0;
+    let loopStarted = false;
+
+    const player = { x: 185, y: 500, w: 30, h: 45, vx: 0, vy: 0, onGround: true, facing: 1, stretchY: 1, stretchX: 1 };
+
+    const config = {
+        easy:   { initialSpeed: 1.5, increment: 0,     maxScore: 0,  desc: "イージー" },
+        normal: { initialSpeed: 1.2, increment: 0.03,  maxScore: 40, desc: "ノーマル" },
+        hard:   { initialSpeed: 1.8, increment: 0.06,  maxScore: 20, desc: "ハード" } 
+    };
+
+    function loadHighScores() {
+        const saved = localStorage.getItem('lavaJumpHighScoresFull');
+        if (saved) highScores = JSON.parse(saved);
+        updateMenuDisplay();
+    }
+
+    function updateMenuDisplay() {
+        document.getElementById('best-easy').innerText = highScores.easy || 0;
+        document.getElementById('best-normal').innerText = highScores.normal || 0;
+        document.getElementById('best-hard').innerText = highScores.hard || 0;
+    }
+
+    function resetScore(mode) {
+        if (confirm(`${config[mode].desc}の記録を消しますか？`)) {
+            highScores[mode] = 0;
+            localStorage.setItem('lavaJumpHighScoresFull', JSON.stringify(highScores));
+            updateMenuDisplay();
+        }
+    }
+
+    function startGame(mode) {
+        currentMode = mode;
+        menu.style.display = 'none';
+        canvas.style.display = 'block';
+        ui.style.display = 'block';
+        touchGuide.style.display = 'block';
+        resetGameVariables();
+        if (!loopStarted) { loopStarted = true; gameLoop(); }
+    }
+
+    function retryGame() {
+        gameOverPanel.style.display = 'none';
+        resetGameVariables();
+    }
+
+    function backToMenu() {
+        loadHighScores();
+        gameOverPanel.style.display = 'none';
+        canvas.style.display = 'none';
+        ui.style.display = 'none';
+        touchGuide.style.display = 'none';
+        menu.style.display = 'block';
+    }
+
+    function resetGameVariables() {
+        score = 0;
+        scoreVal.innerText = "0";
+        bestValUI.innerText = "BEST: " + (highScores[currentMode] || 0);
+        gameOver = false;
+        gameStarted = false;
+        cameraY = 0;
+        lavaY = 850;
+        player.x = 185; player.y = 500; player.vx = 0; player.vy = 0;
+        player.onGround = true; // 最初は立っている
+        modeLabel.innerText = config[currentMode].desc;
+        initPlatforms();
+    }
+
+    function createNextPlatform() {
+        const lastP = platforms[platforms.length - 1];
+        const verticalGap = 110 + Math.random() * 15;
+        let nextX;
+        if (lastP.x > canvas.width / 2) nextX = lastP.x - (130 + Math.random() * 35);
+        else nextX = lastP.x + (130 + Math.random() * 35);
+        nextX = Math.max(25, Math.min(canvas.width - 95, nextX));
+        return { x: nextX, y: lastP.y - verticalGap, w: 70, h: 15, passed: false };
+    }
+
+    function initPlatforms() {
+        platforms = [{ x: 50, y: 550, w: 300, h: 20, passed: true }];
+        for (let i = 0; i < 15; i++) platforms.push(createNextPlatform());
+    }
+
+    const keys = {};
+    let touchLeft = false;
+    let touchRight = false;
+
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        updateTouchState(e.touches);
+    }, {passive: false});
+
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        updateTouchState(e.touches);
+    }, {passive: false});
+
+    canvas.addEventListener('touchend', e => {
+        updateTouchState(e.touches);
+    }, {passive: false});
+
+    function updateTouchState(touches) {
+        touchLeft = false; touchRight = false;
+        const rect = canvas.getBoundingClientRect();
+        for(let i=0; i<touches.length; i++) {
+            const touchX = (touches[i].clientX - rect.left) * (canvas.width / rect.width);
+            if (touchX < canvas.width / 2) touchLeft = true;
+            else touchRight = true;
+        }
+        // タッチされた瞬間にゲームスタート
+        if ((touchLeft || touchRight) && !gameStarted && !gameOver) {
+            gameStarted = true;
+            lavaY = player.y + 180;
+        }
+    }
+
+    function jump() {
+        player.vy = -12.5; 
+        player.onGround = false;
+        player.stretchY = 1.4; player.stretchX = 0.7;
+    }
+
+    function update() {
+        if (gameOver) return;
+
+        // キー入力でもゲーム開始
+        if (!gameStarted && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['KeyA'] || keys['KeyD'])) {
+            gameStarted = true;
+            lavaY = player.y + 180;
+        }
+
+        if (keys['KeyA'] || keys['ArrowLeft'] || (touchLeft)) { player.vx = -4.5; player.facing = -1; }
+        else if (keys['KeyD'] || keys['ArrowRight'] || (touchRight)) { player.vx = 4.5; player.facing = 1; }
+        else player.vx *= 0.75;
+
+        player.vy += 0.52; player.x += player.vx; player.y += player.vy;
+        player.stretchX += (1 - player.stretchX) * 0.15; player.stretchY += (1 - player.stretchY) * 0.15;
+
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
+
+        let wasOnGround = player.onGround;
+        player.onGround = false;
+        platforms.forEach(p => {
+            if (player.vy > 0 && player.x < p.x + p.w && player.x + player.w > p.x &&
+                player.y + player.h > p.y && player.y + player.h < p.y + p.h + player.vy) {
+                
+                player.y = p.y - player.h; 
+                player.vy = 0; 
+                player.onGround = true;
+                
+                // 着地した瞬間に自動ジャンプ！
+                if (gameStarted) {
+                    jump();
+                    player.stretchY = 0.6; player.stretchX = 1.3;
+                    if (!p.passed) { p.passed = true; score++; scoreVal.innerText = score; }
+                }
+            }
+        });
+
+        if (gameStarted) {
+            const c = config[currentMode];
+            currentLavaSpeed = c.initialSpeed + (Math.min(score, c.maxScore || 999) * c.increment);
+            lavaY -= currentLavaSpeed;
+            speedMeter.innerText = currentLavaSpeed.toFixed(2) + " px/f";
+        }
+
+        if (player.y - 250 < cameraY) cameraY = player.y - 250;
+        if (platforms[platforms.length - 1].y > cameraY - 100) platforms.push(createNextPlatform());
+        while (platforms[0].y > cameraY + canvas.height + 100) platforms.shift();
+
+        if (player.y + player.h > lavaY || player.y > cameraY + canvas.height) triggerGameOver();
+    }
+
+    function triggerGameOver() {
+        gameOver = true;
+        let isNewRecord = false;
+        if (score > (highScores[currentMode] || 0)) {
+            highScores[currentMode] = score;
+            localStorage.setItem('lavaJumpHighScoresFull', JSON.stringify(highScores));
+            isNewRecord = true;
+        }
+        gameOverPanel.style.display = 'block';
+        finalScoreVal.innerText = score;
+        document.getElementById('bestEndDisplay').innerText = highScores[currentMode];
+        newRecordMsg.style.display = isNewRecord ? 'block' : 'none';
+        document.getElementById('gameOverTitle').innerText = isNewRecord ? "NEW RECORD!" : "GAME OVER";
+        document.getElementById('modeLabelEnd').innerText = "難易度: " + config[currentMode].desc;
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(0, -cameraY);
+        ctx.fillStyle = '#4a69bd';
+        platforms.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+        ctx.save();
+        ctx.translate(player.x + player.w/2, player.y + player.h);
+        ctx.scale(player.stretchX, player.stretchY);
+        ctx.fillStyle = '#00d2ff';
+        ctx.fillRect(-player.w/2, -player.h+15, player.w, player.h-15);
+        ctx.beginPath(); ctx.arc(0, -player.h+10, 10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#333';
+        ctx.beginPath(); ctx.arc(4 * player.facing, -player.h+10, 2, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+        const wave = Math.sin(Date.now() * 0.008) * 8;
+        ctx.fillStyle = 'rgba(255, 40, 0, 0.9)';
+        ctx.fillRect(0, lavaY + wave, canvas.width, 2000); 
+        ctx.restore();
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+    loadHighScores();
+</script>
+</body>
+</html>
