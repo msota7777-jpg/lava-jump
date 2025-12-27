@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>溶岩ジャンプ - スマホ・PC対応版</title>
+    <title>溶岩ジャンプ - 自動ジャンプ版</title>
     <style>
         body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; color: white; touch-action: none; }
         canvas { background: #222; box-shadow: 0 0 40px rgba(255, 69, 0, 0.3); border: 2px solid #444; display: none; max-width: 100%; max-height: 100vh; }
@@ -23,7 +23,6 @@
         .hard { background: #eb3b5a; width: 70px; }
         
         .reset-btn { background: transparent; border: 1px solid #555; color: #888; font-size: 10px; padding: 2px 6px; margin-left: 5px; border-radius: 4px; }
-
         .retry { background: #f39c12; width: 100%; margin-top: 20px; font-size: 18px; }
         .back-to-menu { background: #7f8c8d; font-size: 12px; width: 80%; margin: 10px auto; display: block; }
 
@@ -37,8 +36,7 @@
         .new-record { color: #f1c40f; font-size: 16px; animation: flash 0.5s infinite alternate; display: none; }
         @keyframes flash { from { opacity: 1; } to { opacity: 0.3; } }
         
-        /* スマホ向け操作ガイド */
-        #touchGuide { position: absolute; bottom: 20px; width: 100%; text-align: center; font-size: 10px; opacity: 0.4; pointer-events: none; display: none; }
+        #touchGuide { position: absolute; bottom: 20px; width: 100%; text-align: center; font-size: 11px; opacity: 0.5; pointer-events: none; display: none; color: #00d2ff; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -86,7 +84,7 @@
         <div id="bestValUI">BEST: 0</div>
     </div>
     <div id="speedMeter">0.00 px/f</div>
-    <div id="touchGuide">左右タップで移動 / 同時タップでジャンプ</div>
+    <div id="touchGuide">左右タップで移動（自動で跳ねます！）</div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -104,7 +102,6 @@
     const ui = document.getElementById('ui');
     const touchGuide = document.getElementById('touchGuide');
 
-    // 画面サイズに合わせてキャンバスを調整
     function resize() {
         const h = window.innerHeight;
         const w = window.innerWidth;
@@ -134,7 +131,7 @@
     let currentLavaSpeed = 0;
     let loopStarted = false;
 
-    const player = { x: 185, y: 500, w: 30, h: 45, vx: 0, vy: 0, onGround: false, facing: 1, stretchY: 1, stretchX: 1 };
+    const player = { x: 185, y: 500, w: 30, h: 45, vx: 0, vy: 0, onGround: true, facing: 1, stretchY: 1, stretchX: 1 };
 
     const config = {
         easy:   { initialSpeed: 1.5, increment: 0,     maxScore: 0,  desc: "イージー" },
@@ -193,8 +190,9 @@
         gameOver = false;
         gameStarted = false;
         cameraY = 0;
-        lavaY = 800;
+        lavaY = 850;
         player.x = 185; player.y = 500; player.vx = 0; player.vy = 0;
+        player.onGround = true; // 最初は立っている
         modeLabel.innerText = config[currentMode].desc;
         initPlatforms();
     }
@@ -214,60 +212,59 @@
         for (let i = 0; i < 15; i++) platforms.push(createNextPlatform());
     }
 
-    // --- 入力制御 (PC & スマホ) ---
     const keys = {};
     let touchLeft = false;
     let touchRight = false;
 
-    window.addEventListener('keydown', e => {
-        keys[e.code] = true;
-        if ((e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp')) jump();
-    });
+    window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    // タッチイベント
     canvas.addEventListener('touchstart', e => {
         e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        for(let i=0; i<e.touches.length; i++) {
-            const touchX = (e.touches[i].clientX - rect.left) * (canvas.width / rect.width);
-            if (touchX < canvas.width / 2) touchLeft = true;
-            else touchRight = true;
-        }
-        if (touchLeft && touchRight) jump();
+        updateTouchState(e.touches);
+    }, {passive: false});
+
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        updateTouchState(e.touches);
     }, {passive: false});
 
     canvas.addEventListener('touchend', e => {
-        if (e.touches.length === 0) {
-            touchLeft = false;
-            touchRight = false;
-        } else {
-            // まだ指が残っている場合
-            touchLeft = false; touchRight = false;
-            const rect = canvas.getBoundingClientRect();
-            for(let i=0; i<e.touches.length; i++) {
-                const touchX = (e.touches[i].clientX - rect.left) * (canvas.width / rect.width);
-                if (touchX < canvas.width / 2) touchLeft = true;
-                else touchRight = true;
-            }
-        }
+        updateTouchState(e.touches);
     }, {passive: false});
 
-    function jump() {
-        if (player.onGround && !gameOver) {
-            player.vy = -12.5; player.onGround = false;
-            player.stretchY = 1.4; player.stretchX = 0.7;
-            if (!gameStarted) { gameStarted = true; lavaY = player.y + 180; }
+    function updateTouchState(touches) {
+        touchLeft = false; touchRight = false;
+        const rect = canvas.getBoundingClientRect();
+        for(let i=0; i<touches.length; i++) {
+            const touchX = (touches[i].clientX - rect.left) * (canvas.width / rect.width);
+            if (touchX < canvas.width / 2) touchLeft = true;
+            else touchRight = true;
         }
+        // タッチされた瞬間にゲームスタート
+        if ((touchLeft || touchRight) && !gameStarted && !gameOver) {
+            gameStarted = true;
+            lavaY = player.y + 180;
+        }
+    }
+
+    function jump() {
+        player.vy = -12.5; 
+        player.onGround = false;
+        player.stretchY = 1.4; player.stretchX = 0.7;
     }
 
     function update() {
         if (gameOver) return;
 
-        // PC操作 or スマホ操作
-        if (keys['KeyA'] || keys['ArrowLeft'] || (touchLeft && !touchRight)) { player.vx = -4.5; player.facing = -1; }
-        else if (keys['KeyD'] || keys['ArrowRight'] || (touchRight && !touchLeft)) { player.vx = 4.5; player.facing = 1; }
-        else if (touchLeft && touchRight) { /* ジャンプ済みなら何もしない */ }
+        // キー入力でもゲーム開始
+        if (!gameStarted && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['KeyA'] || keys['KeyD'])) {
+            gameStarted = true;
+            lavaY = player.y + 180;
+        }
+
+        if (keys['KeyA'] || keys['ArrowLeft'] || (touchLeft)) { player.vx = -4.5; player.facing = -1; }
+        else if (keys['KeyD'] || keys['ArrowRight'] || (touchRight)) { player.vx = 4.5; player.facing = 1; }
         else player.vx *= 0.75;
 
         player.vy += 0.52; player.x += player.vx; player.y += player.vy;
@@ -276,13 +273,22 @@
         if (player.x < 0) player.x = 0;
         if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
 
+        let wasOnGround = player.onGround;
         player.onGround = false;
         platforms.forEach(p => {
             if (player.vy > 0 && player.x < p.x + p.w && player.x + player.w > p.x &&
                 player.y + player.h > p.y && player.y + player.h < p.y + p.h + player.vy) {
-                if (!player.onGround) { player.stretchY = 0.6; player.stretchX = 1.3; }
-                player.y = p.y - player.h; player.vy = 0; player.onGround = true;
-                if (!p.passed) { p.passed = true; score++; scoreVal.innerText = score; }
+                
+                player.y = p.y - player.h; 
+                player.vy = 0; 
+                player.onGround = true;
+                
+                // 着地した瞬間に自動ジャンプ！
+                if (gameStarted) {
+                    jump();
+                    player.stretchY = 0.6; player.stretchX = 1.3;
+                    if (!p.passed) { p.passed = true; score++; scoreVal.innerText = score; }
+                }
             }
         });
 
